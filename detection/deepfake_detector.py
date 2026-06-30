@@ -85,7 +85,7 @@ class DeepfakeDetector:
             self._meso_model = self.model_manager.get_model('meso')
         return self._meso_model
     
-    def detect(self, uploaded_file, threshold=0.5, enable_viz=True):
+    def detect(self, uploaded_file, threshold=0.5, enable_viz=True, frame_fake_threshold=0.3):
         """Complete deepfake detection with MTCNN face extraction and model inference"""
         start_time = time.time()
         
@@ -95,7 +95,7 @@ class DeepfakeDetector:
             tmp_path = tmp_file.name
         
         try:
-            return self._analyze_video(tmp_path, threshold, enable_viz, start_time)
+            return self._analyze_video(tmp_path, threshold, enable_viz, start_time, frame_fake_threshold)
         finally:
             # Clean up temporary file
             try:
@@ -103,7 +103,7 @@ class DeepfakeDetector:
             except:
                 pass
     
-    def _analyze_video(self, video_path, threshold, enable_viz, start_time):
+    def _analyze_video(self, video_path, threshold, enable_viz, start_time, frame_fake_threshold=0.3):
         """Analyze video frame by frame for deepfake detection with robust face extraction"""
         cap = cv2.VideoCapture(video_path)
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -134,10 +134,11 @@ class DeepfakeDetector:
             if len(faces) > 0:
                 faces_detected += len(faces)
                 
-                for face_idx, face in enumerate(faces):
+                for face_idx, face_data in enumerate(faces):
                     try:
+                        face_img = face_data[0]
                         # Preprocess face for models
-                        face_tensor = self.face_extractor.preprocess(face)
+                        face_tensor = self.face_extractor.preprocess(face_img)
                         face_tensor = face_tensor.to(self.device)
                         
                         # Run inference with both models
@@ -181,11 +182,11 @@ class DeepfakeDetector:
         # Calculate final verdict with enhanced error tracking
         return self._calculate_final_verdict(
             frame_results, faces_detected, frame_count, 
-            fps, threshold, start_time, enable_viz, failed_face_detection_frames
+            fps, threshold, start_time, enable_viz, failed_face_detection_frames, frame_fake_threshold
         )
     
     def _calculate_final_verdict(self, frame_results, faces_detected, 
-                               total_frames, fps, threshold, start_time, enable_viz, failed_face_detection_frames=0):
+                               total_frames, fps, threshold, start_time, enable_viz, failed_face_detection_frames=0, frame_fake_threshold=0.3):
         """Calculate final deepfake verdict based on frame analysis with enhanced error tracking"""
         
         if len(frame_results) == 0:
@@ -220,16 +221,16 @@ class DeepfakeDetector:
         
         # Final verdict based on percentage of fake frames
         fake_percentage = fake_frames / len(frame_results)
-        is_fake = fake_percentage > 0.3  # If >30% of frames are fake, classify as deepfake
+        is_fake = fake_percentage > frame_fake_threshold
         
         # Confidence score is the average ensemble confidence
         confidence = float(avg_ensemble_conf)
         
         # Generate explanation
         if is_fake:
-            explanation = f"DEEPFAKE DETECTED: {fake_frames}/{len(frame_results)} frames ({fake_percentage:.1%}) classified as synthetic"
+            explanation = f"DEEPFAKE DETECTED: {fake_frames}/{len(frame_results)} frames ({fake_percentage:.1%}) classified as synthetic (exceeds {frame_fake_threshold:.1%} threshold)"
         else:
-            explanation = f"AUTHENTIC: {fake_frames}/{len(frame_results)} frames ({fake_percentage:.1%}) classified as synthetic (below 30% threshold)"
+            explanation = f"AUTHENTIC: {fake_frames}/{len(frame_results)} frames ({fake_percentage:.1%}) classified as synthetic (below {frame_fake_threshold:.1%} threshold)"
         
         # Prepare visualizations if requested
         visualizations = {}
@@ -312,7 +313,7 @@ class DeepfakeDetector:
             }
         }
     
-    def batch_detect_faces(self, faces_batch: List[np.ndarray], use_cache: bool = True) -> List[Dict[str, Any]]:
+    def batch_detect_faces(self, faces_batch: List[np.ndarray], use_cache: bool = True, threshold: float = 0.5) -> List[Dict[str, Any]]:
         """Process multiple faces in batch for better performance"""
         if not faces_batch:
             return []
@@ -341,7 +342,7 @@ class DeepfakeDetector:
                 
                 # Process only uncached faces
                 if uncached_faces:
-                    uncached_results = self._batch_process_faces(uncached_faces)
+                    uncached_results = self._batch_process_faces(uncached_faces, threshold)
                     
                     # Cache new results
                     for idx, result in enumerate(uncached_results):
@@ -361,7 +362,7 @@ class DeepfakeDetector:
                 batch_results = [r for r in all_results if r is not None]
             else:
                 # Process all faces without caching
-                batch_results = self._batch_process_faces(faces_batch)
+                batch_results = self._batch_process_faces(faces_batch, threshold)
             
             # Update statistics
             processing_time = time.time() - start_time
@@ -383,7 +384,7 @@ class DeepfakeDetector:
             self.logger.error(f"Batch face processing failed: {e}")
             return [{'error': str(e)} for _ in faces_batch]
     
-    def _batch_process_faces(self, faces: List[np.ndarray]) -> List[Dict[str, Any]]:
+    def _batch_process_faces(self, faces: List[np.ndarray], threshold: float = 0.5) -> List[Dict[str, Any]]:
         """Process faces in optimized batches"""
         results = []
         
@@ -430,7 +431,7 @@ class DeepfakeDetector:
                     'xception_confidence': xception_conf,
                     'meso_confidence': meso_conf,
                     'ensemble_confidence': ensemble_conf,
-                    'is_fake': ensemble_conf > 0.5,
+                    'is_fake': ensemble_conf > threshold,
                     'processing_method': 'batch'
                 }
                 results.append(result)
@@ -455,7 +456,7 @@ class DeepfakeDetector:
                         'xception_confidence': float(xception_conf),
                         'meso_confidence': float(meso_conf),
                         'ensemble_confidence': ensemble_conf,
-                        'is_fake': ensemble_conf > 0.5,
+                        'is_fake': ensemble_conf > threshold,
                         'processing_method': 'individual_fallback'
                     }
                     results.append(result)

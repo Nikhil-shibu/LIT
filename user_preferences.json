@@ -1,0 +1,14 @@
+{
+  "confidence_threshold": 0.51,
+  "enable_visualization": false,
+  "save_results": false,
+  "detection_mode": "Detect Fake News",
+  "ui_theme": "light",
+  "show_technical_details": true,
+  "auto_save_reports": false,
+  "preferred_models": {
+    "deepfake_detection": "xception",
+    "ai_image_detection": "efficientnet"
+  },
+  "video_frame_threshold": 0.3
+}

@@ -15,7 +15,7 @@ class Config:
     # ===== ENVIRONMENT VARIABLES =====
     
     # Detection thresholds
-    CONFIDENCE_THRESHOLD = float(os.getenv('CONFIDENCE_THRESHOLD', '0.5'))
+    CONFIDENCE_THRESHOLD = float(os.getenv('CONFIDENCE_THRESHOLD', '0.51'))
     AI_IMAGE_THRESHOLD = float(os.getenv('AI_IMAGE_THRESHOLD', '0.6'))
     DEEPFAKE_THRESHOLD = float(os.getenv('DEEPFAKE_THRESHOLD', '0.7'))
     DUPLICATE_THRESHOLD = float(os.getenv('DUPLICATE_THRESHOLD', '0.8'))
@@ -143,7 +143,9 @@ class Config:
         """Save user preferences to storage file"""
         try:
             # Ensure directory exists
-            os.makedirs(os.path.dirname(cls.PREFERENCES_STORAGE_PATH), exist_ok=True)
+            pref_dir = os.path.dirname(cls.PREFERENCES_STORAGE_PATH)
+            if pref_dir:
+                os.makedirs(pref_dir, exist_ok=True)
             
             with open(cls.PREFERENCES_STORAGE_PATH, 'w') as f:
                 json.dump(preferences, f, indent=2)

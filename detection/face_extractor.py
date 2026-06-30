@@ -5,7 +5,11 @@ from facenet_pytorch import MTCNN
 from PIL import Image
 import dlib
 import torchvision.transforms as transforms
-import mediapipe as mp
+try:
+    import mediapipe as mp
+    MEDIAPIPE_AVAILABLE = True
+except ImportError:
+    MEDIAPIPE_AVAILABLE = False
 import os
 import urllib.request
 from typing import List, Tuple, Optional
@@ -26,16 +30,23 @@ class FaceExtractor:
         # Initialize OpenCV face detector as additional fallback
         self.opencv_face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         
-        # Initialize MediaPipe components
-        self.mp_face_detection = mp.solutions.face_detection
-        self.mp_drawing = mp.solutions.drawing_utils
-        self.face_detection = self.mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
+        # Initialize MediaPipe components if available
+        if MEDIAPIPE_AVAILABLE:
+            self.mp_face_detection = mp.solutions.face_detection
+            self.mp_drawing = mp.solutions.drawing_utils
+            self.face_detection = self.mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
+        else:
+            self.face_detection = None
         
         # Initialize dlib face predictor
-        self.predictor_path = "shape_predictor_68_face_landmarks.dat"
-        self._download_predictor_if_needed()
-        self.predictor = dlib.shape_predictor(self.predictor_path)
-        self.detector = dlib.get_frontal_face_detector()
+        try:
+            self.predictor_path = "shape_predictor_68_face_landmarks.dat"
+            self._download_predictor_if_needed()
+            self.predictor = dlib.shape_predictor(self.predictor_path)
+            self.detector = dlib.get_frontal_face_detector()
+            self.dlib_available = True
+        except Exception:
+            self.dlib_available = False
     
     def _download_predictor_if_needed(self):
         if not os.path.exists(self.predictor_path):
@@ -67,10 +78,12 @@ class FaceExtractor:
         return faces
     
     def extract_faces_mediapipe(self, frame: np.ndarray) -> List[Tuple[np.ndarray, Tuple[int, int, int, int]]]:
+        faces = []
+        if not MEDIAPIPE_AVAILABLE or not self.face_detection:
+            return faces
+            
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self.face_detection.process(rgb_frame)
-        
-        faces = []
         if results.detections:
             for detection in results.detections:
                 bbox = detection.location_data.relative_bounding_box
@@ -198,6 +211,9 @@ class FaceExtractor:
         return face
 
     def align_face(self, face: np.ndarray) -> np.ndarray:
+        if not hasattr(self, 'dlib_available') or not self.dlib_available:
+            return face
+            
         gray = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
         faces = self.detector(gray, 1)
         

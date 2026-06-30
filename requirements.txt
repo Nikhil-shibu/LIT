@@ -27,3 +27,11 @@ openpyxl
 xlsxwriter
 psutil
 exifread
+# TruthLens — Fake News Detector dependencies
+transformers
+spacy
+lime
+xgboost
+python-dotenv
+youtube-transcript-api
+ddgs

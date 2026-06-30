@@ -200,11 +200,11 @@ class ModelManager:
         # Merge config with runtime kwargs
         config = {**self.model_configs[model_key], **kwargs}
         
+        # Estimate memory usage and remove it from config
+        memory_estimate = config.pop('memory_mb_estimate', 500)
+        
         # Create loader with config
         loader = lambda: self.model_loaders[model_key](**config)
-        
-        # Estimate memory usage
-        memory_estimate = config.get('memory_mb_estimate', 500)
         
         return self.lazy_load_model(model_key, loader, memory_estimate)
     
