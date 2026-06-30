@@ -1,0 +1,19 @@
+fastapi==0.111.0
+uvicorn==0.30.1
+streamlit==1.35.0
+transformers==4.41.2
+# torch is intentionally unpinned — use whatever build is already in your environment
+# (CPU: pip install torch   |   CUDA: already present as torch 2.7.1+cu118)
+torch>=2.0.0
+spacy==3.7.5
+nltk==3.8.1
+scikit-learn==1.5.0
+xgboost==2.0.3
+lime==0.2.0.1
+requests==2.32.3
+youtube-transcript-api==0.6.2
+pydantic==2.7.4
+numpy==1.26.4
+python-dotenv==1.0.1
+# Live web double-check (no API key required)
+ddgs>=9.0.0
