@@ -1,7 +1,0 @@
-# TruthLens Environment Variables
-# Copy this file and rename to .env, then fill in your actual keys.
-# Never commit .env to version control.
-
-# Google Fact Check Tools API key
-# Get one at: https://console.cloud.google.com/apis/library/factchecktools.googleapis.com
-GOOGLE_API_KEY=AIzaSyCALGt0PMNBygqHKz_QgugVoGr9_DxV83s

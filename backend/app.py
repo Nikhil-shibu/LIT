@@ -20,6 +20,7 @@ from utils.explainer import lime_explain, lime_explain_html
 from utils.fact_check import fact_check
 from utils.baseline import train_xgb_pipeline, xgb_pipeline_predict
 from utils.web_verify import web_verify_claims
+from utils.entity_check import check_entity_order_for_claims
 from utils.aggregator import compute_final_verdict
 
 warnings.filterwarnings("ignore")
@@ -73,11 +74,11 @@ async def lifespan(app: FastAPI):
     explainer = LimeTextExplainer(class_names=["Genuine", "Misleading"])
     log.debug("[3/4] LIME explainer ready")
 
-    # ── XGBoost baseline ──────────────────────────────────────────────────────
+    # ── XGBoost baseline (trained on data/fake.csv + data/real.csv, cached) ──
     t0 = time.time()
-    log.info("[4/4] Training XGBoost baseline pipeline (80 inline examples)")
+    log.info("[4/4] Loading/training XGBoost pipeline (data/fake.csv + data/real.csv, cached)")
     xgb_pipeline = train_xgb_pipeline()
-    log.info(f"[4/4] XGBoost pipeline trained in {time.time() - t0:.2f}s")
+    log.info(f"[4/4] XGBoost pipeline ready in {time.time() - t0:.2f}s")
 
     log.info(f"=== Startup complete in {time.time() - startup_start:.2f}s — API ready ===")
     yield
@@ -102,70 +103,87 @@ async def analyze(req: AnalyzeRequest):
     try:
         # ── Step 1 — ingest ──────────────────────────────────────────────────
         t0 = time.time()
-        log.debug("[Step 1/8] Ingesting input...")
+        log.debug("[Step 1/9] Ingesting input...")
         text = ingest(req.text, req.source_type)
         if not text or text.startswith("Error during ingestion"):
-            log.error(f"[Step 1/8] Ingestion FAILED: {text}")
+            log.error(f"[Step 1/9] Ingestion FAILED: {text}")
             raise ValueError(f"Ingestion failed: {text}")
-        log.info(f"[Step 1/8] Ingestion OK ({len(text)} chars) in {time.time() - t0:.2f}s")
-        log.debug(f"[Step 1/8] Normalised text preview: {text[:120]!r}")
+        log.info(f"[Step 1/9] Ingestion OK ({len(text)} chars) in {time.time() - t0:.2f}s")
+        log.debug(f"[Step 1/9] Normalised text preview: {text[:120]!r}")
 
         # ── Step 2 — claim extraction ────────────────────────────────────────
         t0 = time.time()
-        log.debug("[Step 2/8] Extracting claims (spaCy + TF-IDF)...")
+        log.debug("[Step 2/9] Extracting claims (spaCy + TF-IDF)...")
         claims = extract_claims(text, nlp)
-        log.info(f"[Step 2/8] Extracted {len(claims)} claim(s) in {time.time() - t0:.2f}s")
+        log.info(f"[Step 2/9] Extracted {len(claims)} claim(s) in {time.time() - t0:.2f}s")
         for i, c in enumerate(claims, 1):
-            log.debug(f"[Step 2/8]   claim {i}: {c[:100]!r}")
+            log.debug(f"[Step 2/9]   claim {i}: {c[:100]!r}")
 
         # ── Step 3 — BERT classification ─────────────────────────────────────
         t0 = time.time()
-        log.debug("[Step 3/8] Running BERT classification...")
+        log.debug("[Step 3/9] Running BERT classification...")
         bert_result = bert_classify(text, tokenizer, bert_model)
         log.info(
-            f"[Step 3/8] BERT result: {bert_result['label']} "
+            f"[Step 3/9] BERT result: {bert_result['label']} "
             f"(confidence={bert_result['confidence']:.3f}) in {time.time() - t0:.2f}s"
         )
 
         # ── Step 4 — LIME explanation ────────────────────────────────────────
         t0 = time.time()
-        log.debug("[Step 4/8] Generating LIME word-weight explanation (num_samples=300)...")
+        log.debug("[Step 4/9] Generating LIME word-weight explanation (num_samples=300)...")
         lime_words = lime_explain(text, tokenizer, bert_model, explainer)
-        log.info(f"[Step 4/8] LIME produced {len(lime_words)} word weights in {time.time() - t0:.2f}s")
+        log.info(f"[Step 4/9] LIME produced {len(lime_words)} word weights in {time.time() - t0:.2f}s")
 
-        # ── Step 5 — Google Fact-Check ───────────────────────────────────────
+        # ── Step 5 — Google Fact-Check (highest-weighted signal) ──────────────
         t0 = time.time()
-        log.debug(f"[Step 5/8] Fact-checking {len(claims)} claim(s) against Google Fact Check API...")
+        log.debug(f"[Step 5/9] Fact-checking {len(claims)} claim(s) against Google Fact Check API...")
         fact_results = []
         for i, c in enumerate(claims, 1):
             fc = fact_check(c)
-            log.debug(f"[Step 5/8]   claim {i} -> source={fc.get('source')!r}, verdict={fc.get('verdict')!r}")
+            log.debug(f"[Step 5/9]   claim {i} -> source={fc.get('source')!r}, verdict={fc.get('verdict')!r}")
             fact_results.append(fc)
-        log.info(f"[Step 5/8] Fact-check complete in {time.time() - t0:.2f}s")
+        log.info(f"[Step 5/9] Fact-check complete in {time.time() - t0:.2f}s")
 
         # ── Step 6 — Live web double-check ───────────────────────────────────
         t0 = time.time()
-        log.debug(f"[Step 6/8] Searching the live web to corroborate {len(claims)} claim(s)...")
+        log.debug(f"[Step 6/9] Searching the live web to corroborate {len(claims)} claim(s)...")
         web_results = web_verify_claims(claims)
         for i, w in enumerate(web_results, 1):
-            log.debug(f"[Step 6/8]   claim {i} -> {w['corroboration']} ({w['match_count']} result(s))")
-        log.info(f"[Step 6/8] Web double-check complete in {time.time() - t0:.2f}s")
+            log.debug(f"[Step 6/9]   claim {i} -> {w['corroboration']} ({w['match_count']} result(s))")
+        log.info(f"[Step 6/9] Web double-check complete in {time.time() - t0:.2f}s")
 
-        # ── Step 7 — XGBoost baseline ────────────────────────────────────────
+        # ── Step 7 — Entity-order consistency check ──────────────────────────
+        # Catches contradictions keyword-overlap corroboration misses entirely,
+        # e.g. a claim with two named entities swapped relative to real evidence
+        # (the classic "Team A beat Team B" vs "Team B beat Team A" case).
         t0 = time.time()
-        log.debug("[Step 7/8] Running XGBoost baseline prediction...")
+        log.debug(f"[Step 7/9] Checking entity order for {len(claims)} claim(s) against web evidence...")
+        entity_results = check_entity_order_for_claims(nlp, claims, web_results)
+        mismatches = sum(1 for e in entity_results if e.get("order_mismatch"))
+        for i, e in enumerate(entity_results, 1):
+            log.debug(f"[Step 7/9]   claim {i} -> order_mismatch={e['order_mismatch']} | {e['detail']}")
+        log.info(
+            f"[Step 7/9] Entity-order check complete in {time.time() - t0:.2f}s "
+            f"({mismatches}/{len(claims)} mismatch(es) found)"
+        )
+
+        # ── Step 8 — XGBoost baseline ────────────────────────────────────────
+        t0 = time.time()
+        log.debug("[Step 8/9] Running XGBoost baseline prediction...")
         xgb_result = xgb_pipeline_predict(text, xgb_pipeline)
         log.info(
-            f"[Step 7/8] XGBoost result: {xgb_result['label']} "
+            f"[Step 8/9] XGBoost result: {xgb_result['label']} "
             f"(probability={xgb_result['probability']:.3f}) in {time.time() - t0:.2f}s"
         )
 
-        # ── Step 8 — Aggregate final verdict ─────────────────────────────────
+        # ── Step 9 — Aggregate final verdict ─────────────────────────────────
         t0 = time.time()
-        log.debug("[Step 8/8] Aggregating all signals into final verdict...")
-        final_verdict = compute_final_verdict(bert_result, xgb_result, fact_results, web_results)
+        log.debug("[Step 9/9] Aggregating all signals into final verdict...")
+        final_verdict = compute_final_verdict(
+            bert_result, xgb_result, fact_results, web_results, entity_results
+        )
         log.info(
-            f"[Step 8/8] FINAL VERDICT: {final_verdict['label']} "
+            f"[Step 9/9] FINAL VERDICT: {final_verdict['label']} "
             f"(confidence={final_verdict['confidence']:.3f}) in {time.time() - t0:.2f}s"
         )
 
@@ -179,6 +197,7 @@ async def analyze(req: AnalyzeRequest):
             "lime_words": lime_words,
             "fact_checks": fact_results,
             "web_checks": web_results,
+            "entity_checks": entity_results,
             "claims_used": claims,
         }
     except Exception as e:

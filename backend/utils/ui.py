@@ -3,6 +3,7 @@ import sys
 import time
 
 import streamlit as st
+import streamlit.components.v1 as components
 import requests
 import pandas as pd
 
@@ -131,18 +132,22 @@ if analyze_btn:
 
                     # ── Row 3: LIME AI Reasoning ───────────────────────────
                     st.subheader("AI reasoning (LIME)")
-                    st.components.v1.html(lime_html_str, height=380, scrolling=True)
+                    components.html(lime_html_str, height=380, scrolling=True)
 
                     # ── Row 4: Live web double-check ───────────────────────
                     st.subheader("Live web double-check")
                     web_checks = data.get("web_checks", [])
+                    entity_checks = data.get("entity_checks", [])
                     log.debug(f"Rendering {len(web_checks)} web-check result(s)")
                     if not web_checks:
                         st.info("No claims were searched on the web.")
-                    for wc in web_checks:
+                    for idx, wc in enumerate(web_checks):
+                        entity_check = entity_checks[idx] if idx < len(entity_checks) else None
                         with st.container(border=True):
                             st.markdown(f"**Claim:** {wc['claim']}")
                             st.caption(wc["corroboration"])
+                            if entity_check and entity_check.get("order_mismatch"):
+                                st.error(f"⚠️ Possible swap detected: {entity_check['detail']}")
                             for ev in wc.get("evidence", [])[:3]:
                                 title = ev.get("title") or "Untitled"
                                 url = ev.get("url") or "#"

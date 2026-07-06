@@ -32,3 +32,12 @@ node_modules/
 # Build
 dist/
 build/
+# OS
+.DS_Store
+Thumbs.db
+
+# Cached trained model (regenerated automatically from data/*.csv)
+model_cache/
+
+# Large training datasets — don't commit, too big for git
+data/*.csv
